@@ -1,13 +1,18 @@
 # CI Workflow for Bento4
-name: CI
+name: Bento4 CI
 
 # Controls when the action will run. Triggers the workflow on push or pull request
 # events but only for the master branch
 on:
   push:
     branches: [ master ]
-  pull_request:
-    branches: [ master ]
+    tags:
+      - "v*.*"
+  workflow_dispatch:
+
+defaults:
+  run:
+    shell: bash
 
 jobs:
   build:
@@ -15,24 +20,32 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: ['ubuntu-latest', 'macos-latest', 'windows-latest']
+        os: ['ubuntu-22.04', 'macos-13', 'windows-2022']
         include:
-          - os: ubuntu-latest
+          - os: ubuntu-22.04
             CMAKE_OPTIONS: -DCMAKE_BUILD_TYPE=Release
             CMAKE_OUTPUT_SUBDIR: x86_64-unknown-linux
-            PYTHON3_COMMAND: python3  
-          - os: macos-latest
+            PYTHON3_COMMAND: python3
+          - os: macos-13
             CMAKE_OPTIONS: -G Xcode
             CMAKE_OUTPUT_SUBDIR: universal-apple-macosx
-            PYTHON3_COMMAND: python3  
-          - os: windows-latest
+            PYTHON3_COMMAND: python3
+          - os: windows-2022
             CMAKE_OPTIONS: -DCMAKE_BUILD_TYPE=Release
             CMAKE_OUTPUT_SUBDIR: x86_64-microsoft-win32
-            PYTHON3_COMMAND: py  
+            PYTHON3_COMMAND: py
 
     steps:
       # Check out the repository under $GITHUB_WORKSPACE, so that the jobs can access it
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Drop rebased commit
+        run: |
+          if [[ "$(git log -1 --pretty=format:'%s')" == "Update Workflows" ]] || [[ "$(git log -1 --pretty=format:'%ae')" == "10854164+rokibhasansagar@users.noreply.github.com" ]]; then
+            git reset --hard HEAD~1
+          fi
 
       # CMake Build
       - name: Release Build with CMake
@@ -46,7 +59,6 @@ jobs:
 
       # Create SDK
       - name: Create SDK
-        if: github.event_name == 'push'
         run: ${{matrix.PYTHON3_COMMAND}} Scripts/SdkPackager.py
         
       # Upload the SDK
@@ -55,3 +67,25 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           path: SDK/*.zip
+
+  release:
+    name: Bento4 Release
+    runs-on: ubuntu-22.04
+    needs: build
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Download the SDK
+      - name: Download SDK
+        uses: actions/download-artifact@v4
+
+      # Release
+      - uses: "marvinpinto/action-automatic-releases@latest"
+        with:
+          repo_token: "${{ secrets.GITHUB_TOKEN }}"
+          automatic_release_tag: "latest"
+          prerelease: false
+          title: "Latest Release"
+          files: "artifact/*.zip"
+
